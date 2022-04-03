@@ -51,8 +51,10 @@ class RAProcess(threading.Thread):
             self.state = ProcessState.WANTED
 
     def on_wanted(self):
-        # TODO:
-        pass
+        if time.time() - self.time_out_cs >= self.delay:
+            self.time_out_cs = None
+            self.delay = None
+            self.state = ProcessState.HELD
 
     def on_held(self):
         # TODO:
