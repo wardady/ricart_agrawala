@@ -1,4 +1,4 @@
-# Ricart&Agrawala algorithm in Pytohn
+# Ricart&Agrawala algorithm in Python
 
 ## Table of Contents
 1. [Install & Run](#Install&Run)
