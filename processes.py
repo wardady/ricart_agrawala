@@ -6,7 +6,7 @@ import time
 import socket as sckt
 from random import uniform
 
-from ricart_agrawala.states import ProcessState
+from states import ProcessState
 
 
 class RAProcess(threading.Thread):
@@ -31,6 +31,7 @@ class RAProcess(threading.Thread):
     def init_socket(self):
         self.socket = sckt.socket(sckt.AF_INET, sckt.SOCK_STREAM)
         self.socket.bind((self.host, self.port))
+        self.socket.settimeout(1)
 
     def run(self):
         self.socket.listen()
@@ -51,13 +52,17 @@ class RAProcess(threading.Thread):
             self.delay = None
             self.state = ProcessState.WANTED
         _, port = self.get_incoming_request()
-        self.send_message(port, "ok")
+        if port is not None:
+            self.send_message(port, "ok")
 
     def get_incoming_request(self) -> (str, int):
-        connection, client_address = self.socket.accept()
-        message = connection.recv(1024).decode('utf-8')
-        request, src_port = message.split()
-        return request, int(src_port)
+        try:
+            connection, client_address = self.socket.accept()
+            message = connection.recv(1024).decode('utf-8')
+            request, src_port = message.split()
+            return request, int(src_port)
+        except sckt.timeout:
+            return None,None
 
     def on_wanted(self):
         if self.request_time is None:
@@ -65,23 +70,30 @@ class RAProcess(threading.Thread):
             for port in self.peer_ports:
                 self.send_message(port, str(self.request_time))
         message, port = self.get_incoming_request()
-        if message == "ok":
-            self.received_resp.add(port)
-        else:
-            peer_time = float(message)
-            if self.request_time > peer_time:
-                self.send_message(port, "ok")
+        if message is not None:
+            if message == "ok":
+                self.received_resp.add(port)
             else:
-                self.pending_requests.add(port)
+                peer_time = float(message)
+                if self.request_time > peer_time:
+                    self.send_message(port, "ok")
+                else:
+                    self.pending_requests.add(port)
 
         if len(self.received_resp) == self.npeers:
-            self.received_resp = set()
+            self.received_resp.clear()
             self.request_time = None
             self.state = ProcessState.HELD
 
     def on_held(self):
-        # TODO:
-        pass
+        if self.delay_start is None:
+            self.delay_start = time.time()
+        elif time.time() - self.delay_start > self.time_out_cs:
+            self.delay_start = None
+            for p in self.pending_requests:
+                self.send_message(p, "ok")
+            self.pending_requests.clear()
+            self.state = ProcessState.DO_NOT_WANT
 
     def send_message(self, port: int, message: str):
         socket = sckt.socket(sckt.AF_INET, sckt.SOCK_STREAM)
@@ -139,8 +151,9 @@ class MainProcess(threading.Thread):
         if t < 10:
             print(f"Value must be >= 10. Got {t}", file=sys.stderr)
         else:
+            upd_time = uniform(10, t)
             for p in self.processes:
-                p.time_out_cs = uniform(10, t)
+                p.time_out_cs = upd_time
 
     def time_p(self, t: int):
         if t < 5:
