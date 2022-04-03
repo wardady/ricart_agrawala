@@ -2,30 +2,83 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
+import socket as sckt
 from random import uniform
-from time import sleep
 
 from ricart_agrawala.states import ProcessState
 
 
 class RAProcess(threading.Thread):
-    def __init__(self, id: int, ports: dict[int, int]):
+    def __init__(self, id: int, host: str, ports: dict[int, int]):
         super().__init__()
         self.id = id
+        self.host = host
         self.port = ports[self.id]
+        self.init_socket()
         self.peer_ports = [v for k, v in ports.items() if k != self.id]
         self.state = ProcessState.DO_NOT_WANT
         self.time_out_upper_bound = 5
         self.time_out_cs = 10
         self.running = True
+        self.delay_start = None
+        self.delay = None
+
+    def init_socket(self):
+        self.socket = sckt.socket(sckt.AF_INET, sckt.SOCK_STREAM)
+        self.socket.bind((self.host, self.port))
+        self.socket.setsockopt(sckt.SOL_SOCKET, sckt.SO_REUSEADDR, 1)
+        self.socket.settimeout(1)
 
     def run(self):
+        self.socket.listen()
         while self.running:
-            sleep(uniform(5, self.time_out_upper_bound))
+            self.communicate()
+            if self.state == ProcessState.DO_NOT_WANT:
+                if self.delay_start is None:
+                    self.delay_start = time.time()
+                    self.delay = uniform(5, self.time_out_upper_bound)
+                self.on_do_not_want()
+            if self.state == ProcessState.WANTED:
+                self.on_wanted()
+            if self.state == ProcessState.HELD:
+                self.on_held()
+
+    def on_do_not_want(self):
+        if time.time() - self.delay_start >= self.delay:
+            self.delay_start = None
+            self.delay = None
             self.state = ProcessState.WANTED
-            # TODO: Acquire the critical section
-            # TODO: Execute CS
-            # TODO: Release CS
+
+    def on_wanted(self):
+        # TODO:
+        pass
+
+    def on_held(self):
+        # TODO:
+        pass
+
+    def communicate(self):
+        try:
+            connection, client_address = self.socket.accept()
+            message = connection.recv(1024).decode('utf-8')
+            request, src_port = message.split()
+            if self.state == ProcessState.DO_NOT_WANT:
+                self.send_message(src_port, "ok")
+            elif self.state == ProcessState.WANTED:
+                # TODO: check that all responses are ok?
+                pass
+            elif self.state == ProcessState.HELD:
+                # TODO:
+                pass
+
+        except sckt.timeout:
+            pass
+
+    def send_message(self, port, message):
+        socket = sckt.socket(sckt.AF_INET, sckt.SOCK_STREAM)
+        socket.connect((self.host, port))
+        socket.send(f"{message} {self.port}".encode('utf-8'))
 
 
 class MainProcess(threading.Thread):
@@ -33,7 +86,7 @@ class MainProcess(threading.Thread):
         super().__init__()
         self.process_num = process_num
         process_ports = {i: initial_port + i for i in range(0, process_num)}
-        self.processes = [RAProcess(i, process_ports) for i in range(0, process_num)]
+        self.processes = [RAProcess(i, host, process_ports) for i in range(0, process_num)]
         self.running = True
 
     def join(self, timeout: float | None = ...) -> None:
@@ -79,7 +132,7 @@ class MainProcess(threading.Thread):
             print(f"Value must be >= 10. Got {t}", file=sys.stderr)
         else:
             for p in self.processes:
-                p.time_out_cs = t
+                p.time_out_cs = uniform(10, t)
 
     def time_p(self, t: int):
         if t < 5:
