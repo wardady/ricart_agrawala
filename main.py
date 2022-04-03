@@ -1,4 +1,8 @@
 import sys
+from processes import MainProcess
+
+HOST = "127.0.0.1"
+START_PORT = 16384
 
 
 def arg_parser(args: list[str]) -> int:
@@ -18,6 +22,9 @@ def arg_parser(args: list[str]) -> int:
 
 def main(argv):
     num_processes = arg_parser(argv)
+    mp = MainProcess(num_processes, HOST, START_PORT)
+    mp.start()
+    mp.join()
 
 
 if __name__ == "__main__":
